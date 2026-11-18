@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SF Court Weekend</title>
+<link rel="stylesheet" href="style.css">
+<script src="courts.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<main>
+<header><small>SAN FRANCISCO PUBLIC COURTS</small><h1>SF Court Weekend</h1><p>Tennis and pickleball · Pacific time</p></header>
+<section aria-label="Weekend and court filters">
+  <div class="toolbar"><div class="dates"><button id="previous" aria-label="Previous weekend">←</button><h2 id="weekend"></h2><button id="next" aria-label="Next weekend">→</button></div><button id="refresh">Refresh availability</button></div>
+  <div class="toolbar"><label>Sport <select id="sport"><option value="all">Both</option><option value="tennis">Tennis</option><option value="pickleball">Pickleball</option></select></label>
+  <label>Access <select id="access"><option value="all">All courts</option><option value="reserve">Reservable</option><option value="walk">Walk-up</option></select></label>
+  <label>Park <input id="search" type="search" placeholder="Search park name"></label>
+  <label id="net-label" hidden><input id="net" type="checkbox"> Nets provided</label></div>
+</section>
+<p id="status" role="status"></p>
+<div class="toolbar legend" aria-label="Availability legend"><span class="free">Available to reserve</span><span class="closed">Unavailable</span><span class="unknown">Unknown</span><span class="walk">Walk-up</span></div>
+<div class="toolbar" aria-label="Jump to day"><button id="sat">Saturday</button><button id="sun">Sunday</button></div>
+<div class="scroll" id="scroll" tabindex="0" role="region" aria-label="Weekend court grid"><table><thead id="head"></thead><tbody id="body"></tbody></table></div>
+<p class="note">Green marks a half-hour covered by an available reservation window. Rec.us sets the actual start times and booking duration. Walk-up rows show access. Check park hours and court occupancy on site.</p>
+<footer><a href="https://recpark.sf.gov/1446/Tennis-Court-Directory">Tennis directory</a> · <a href="https://recpark.sf.gov/1772/Pickleball-Court-Directory">Pickleball directory</a> · <a href="https://www.rec.us/sfrecpark">Rec.us booking</a></footer>
+</main>
+</body>
+</html>
