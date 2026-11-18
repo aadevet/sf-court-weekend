@@ -39,8 +39,8 @@ function rows() {
       if (!info || (sportFilter === 'pickleball' && id('net').checked && info.nets !== 'provided')) return [];
       const result = [];
       if (access !== 'walk' && info.reserve) {
-        const live = (lookup[park.slug] ?? []).filter(court => court.sports.includes(sport));
-        for (const court of live) result.push({ title:court.name, dates:court.dates, mode:'reserve' });
+        const live = (lookup[park.slug] ?? []).filter(court => court.datesBySport[sport]);
+        for (const court of live) result.push({ title:court.name, dates:court.datesBySport[sport], mode:'reserve' });
         for (let n = live.length; n < info.reserve; n++) {
           result.push({ title:'Listed reservable court ' + (n + 1), dates:{}, mode:'reserve' });
         }
@@ -108,10 +108,18 @@ async function render({reset = false} = {}) {
     if (current !== request) return;
     lookup = data.locations;
     drawRows(days);
-    id('status').textContent = data.enabled
-      ? data.loaded + ' Rec.us locations returned schedules · ' + data.failed + ' failed · ' +
-        new Date(data.checkedAt).toLocaleTimeString('en-US',{timeZone:'America/Los_Angeles',hour:'numeric',minute:'2-digit'}) + ' PT'
-      : 'Directory view. Live Rec.us availability is disabled. Use a park name for the official schedule.';
+    const checked = new Date(data.checkedAt).toLocaleTimeString('en-US', {
+      timeZone:'America/Los_Angeles', hour:'numeric', minute:'2-digit'
+    });
+    const failures = data.failed ? ' · ' + data.failed + ' failed' : '';
+    const blocked = data.forbidden ? ' (' + data.forbidden + ' denied by Rec.us)' : '';
+    if (!data.enabled) {
+      id('status').textContent = 'Directory-only mode. Use a park name for the official schedule.';
+    } else if (data.loaded) {
+      id('status').textContent = data.loaded + ' Rec.us locations returned schedules' + failures + blocked + ' · ' + checked + ' PT';
+    } else {
+      id('status').textContent = 'Live availability is unavailable' + blocked + '. Use a park name for the official schedule.';
+    }
   } catch {
     if (current === request) {
       lookup = {};

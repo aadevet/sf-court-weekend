@@ -20,7 +20,7 @@ const assets = new Map([
 ]);
 const locationIds = new Map();
 const weekendCache = new Map();
-const enabled = process.env.REC_LIVE === '1';
+const enabled = process.env.REC_LIVE !== '0';
 
 function minuteOfDay(time) {
   const match = /^(\d{2}):(\d{2})(?::00)?$/.exec(time);
@@ -66,7 +66,11 @@ function cellsFor(schedule, date, courtMeta, now) {
 
 async function read(url, json = true) {
   const response = await fetch(url, {signal:AbortSignal.timeout(9000), headers:{Accept:json ? 'application/json' : 'text/html'}});
-  if (!response.ok) throw new Error('Rec.us returned ' + response.status);
+  if (!response.ok) {
+    const error = new Error('Rec.us returned ' + response.status);
+    error.status = response.status;
+    throw error;
+  }
   return json ? response.json() : response.text();
 }
 
@@ -84,14 +88,14 @@ async function resolveLocation(slug) {
 async function readLocation(park, dates, now) {
   const uuid = await resolveLocation(park.slug);
   const url = api + '/' + uuid;
-  const [details, ...daily] = await Promise.all([
+  const [details, daily] = await Promise.all([
     read(url + '?publishedSites=true'),
-    ...dates.map(date => read(url + '/schedule?startDate=' + date))
+    Promise.allSettled(dates.map(date => read(url + '/schedule?startDate=' + date)))
   ]);
   const meta = new Map((details.location?.courts ?? details.courts ?? []).map(court => [String(court.courtNumber),court]));
   const result = new Map();
   for (const [index, day] of dates.entries()) {
-    const courts = daily[index].dates?.[day.replaceAll('-','')];
+    const courts = daily[index].value?.dates?.[day.replaceAll('-','')];
     if (!Array.isArray(courts)) continue;
     for (const court of courts) {
       const number = String(court.courtNumber ?? '');
@@ -99,13 +103,19 @@ async function readLocation(park, dates, now) {
       const config = meta.get(number);
       // Courts without a published reservation window are not identifiable as reservable.
       if (!number || !sports.length || !Number.isInteger(config?.defaultReservationWindowDays)) continue;
-      const row = result.get(number) ?? {name:/^court\b/i.test(number) ? number : 'Court ' + number, sports:[], dates:{}};
-      row.sports = [...new Set([...row.sports, ...sports])];
-      row.dates[day] = cellsFor(court.schedule, day, config, now);
+      const row = result.get(number) ?? {name:/^court\b/i.test(number) ? number : 'Court ' + number, datesBySport:{}};
+      const cells = cellsFor(court.schedule, day, config, now);
+      for (const sport of sports) {
+        row.datesBySport[sport] ??= {};
+        row.datesBySport[sport][day] = cells;
+      }
       result.set(number,row);
     }
   }
-  if (!result.size) throw new Error('Court schedules unavailable');
+  if (!result.size) {
+    const blocked = daily.find(day => day.reason?.status === 403);
+    throw blocked?.reason ?? new Error('Court schedules unavailable');
+  }
   return [...result.values()].sort((a,b) => a.name.localeCompare(b.name,undefined,{numeric:true}));
 }
 
@@ -113,16 +123,20 @@ async function fetchWeekend(saturday, now = new Date()) {
   const locations = {};
   const dates = [iso(saturday),iso(new Date(+saturday + dayMs))];
   let failed = 0;
+  let forbidden = 0;
   if (enabled) {
     // Keep simultaneous requests bounded, even for a full city directory.
     for (let index = 0; index < parkList.length; index += 3) {
       await Promise.all(parkList.slice(index,index + 3).map(async park => {
         try { locations[park.slug] = await readLocation(park,dates,now); }
-        catch { failed++; }
+        catch (error) {
+          failed++;
+          if (error.status === 403) forbidden++;
+        }
       }));
     }
   }
-  return {enabled, checkedAt:now.toISOString(),loaded:Object.keys(locations).length,failed,locations};
+  return {enabled, checkedAt:now.toISOString(),loaded:Object.keys(locations).length,failed,forbidden,locations};
 }
 
 function schedule(date) {
