@@ -46,8 +46,9 @@ function cellsFor(schedule, date, courtMeta, now) {
   const window = courtMeta?.defaultReservationWindowDays;
   const release = minuteOfDay(courtMeta?.reservationReleaseTimeLocal);
   const releaseDate = Number.isInteger(window) && window >= 0 ? iso(new Date(+atMidnight(date) - window * dayMs)) : null;
-  const released = releaseDate && (today > releaseDate ||
-    (today === releaseDate && Number.isFinite(release) && minuteOfDay(time) >= release));
+  const releaseUnknown = !releaseDate || (today === releaseDate && !Number.isFinite(release));
+  const released = !releaseUnknown && (today > releaseDate ||
+    (today === releaseDate && minuteOfDay(time) >= release));
   const intervals = Object.entries(schedule).map(([range, info]) => {
     const [start,end] = range.split(',').map(value => minuteOfDay(value.trim()));
     return { start, end, type:info?.referenceType };
@@ -58,7 +59,7 @@ function cellsFor(schedule, date, courtMeta, now) {
     if (date < today || (date === today && start <= minuteOfDay(time))) return 'closed';
     if (intervals.some(block => block.type === 'RESERVATION' && block.start < end && block.end > start)) return 'closed';
     if (intervals.some(block => block.type === 'RESERVABLE' && block.start <= start && block.end >= end)) {
-      return releaseDate ? (released ? 'free' : 'closed') : 'unknown';
+      return releaseUnknown ? 'unknown' : (released ? 'free' : 'closed');
     }
     return intervals.length ? 'closed' : 'unknown';
   });
@@ -92,7 +93,8 @@ async function readLocation(park, dates, now) {
     read(url + '?publishedSites=true'),
     Promise.allSettled(dates.map(date => read(url + '/schedule?startDate=' + date)))
   ]);
-  const meta = new Map((details.location?.courts ?? details.courts ?? []).map(court => [String(court.courtNumber),court]));
+  const location = details.location ?? details;
+  const meta = new Map((location.courts ?? details.courts ?? []).map(court => [String(court.courtNumber),court]));
   const result = new Map();
   for (const [index, day] of dates.entries()) {
     const courts = daily[index].value?.dates?.[day.replaceAll('-','')];
@@ -100,9 +102,18 @@ async function readLocation(park, dates, now) {
     for (const court of courts) {
       const number = String(court.courtNumber ?? '');
       const sports = (court.sports ?? []).map(sport => sport.name?.toLowerCase()).filter(sport => sport === 'tennis' || sport === 'pickleball');
-      const config = meta.get(number);
-      // Courts without a published reservation window are not identifiable as reservable.
-      if (!number || !sports.length || !Number.isInteger(config?.defaultReservationWindowDays)) continue;
+      const courtConfig = meta.get(number);
+      const window = courtConfig?.defaultReservationWindowDays ?? location.defaultReservationWindow;
+      const blockTypes = new Set(Object.values(court.schedule ?? {}).map(block => block?.referenceType));
+      const publishable = blockTypes.has('RESERVABLE') ||
+        (blockTypes.has('RESERVATION') && !blockTypes.has('OPEN'));
+      // A shared park policy alone does not make a walk-up court reservable.
+      if (!number || !sports.length || !courtConfig || !Number.isInteger(window)) continue;
+      if (courtConfig.defaultReservationWindowDays == null && !publishable) continue;
+      const config = {
+        defaultReservationWindowDays:window,
+        reservationReleaseTimeLocal:courtConfig.reservationReleaseTimeLocal ?? location.reservationReleaseTimeLocal
+      };
       const row = result.get(number) ?? {name:/^court\b/i.test(number) ? number : 'Court ' + number, datesBySport:{}};
       const cells = cellsFor(court.schedule, day, config, now);
       for (const sport of sports) {
