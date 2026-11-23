@@ -18,6 +18,17 @@ const escape = value => String(value).replace(/[&<>"']/g, char =>
   ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'})[char]);
 const time = minute => clock.format(new Date(minute * 60000));
 
+function gridDay(date) {
+  const cutoff = sunsetCutoff(date);
+  return {date, cutoff, columns:times.filter(minute => minute < cutoff)};
+}
+
+let origin;
+const distanceFor = park => origin ? distanceKm(origin, park.point) : 0;
+function distanceLabel(park) {
+  return origin ? '<span class="distance">' + distanceFor(park).toFixed(1) + ' km</span>' : '';
+}
+
 let offset = 0;
 let lookup = {};
 let request = 0;
@@ -31,21 +42,24 @@ function weekend() {
 
 function rows() {
   const search = id('search').value.toLowerCase().trim();
-  const sportFilter = id('sport').value;
-  const access = id('access').value;
-  return parks.filter(park => park.name.toLowerCase().includes(search)).flatMap(park =>
-    sports.filter(sport => sportFilter === 'all' || sportFilter === sport).flatMap(sport => {
+  const selectedSports = sports.filter(sport => id(sport).checked);
+  const reserve = id('reserve').checked;
+  const walk = id('walk').checked;
+  const matches = parks.filter(park => park.name.toLowerCase().includes(search));
+  if (origin) matches.sort((a,b) => distanceFor(a) - distanceFor(b));
+  return matches.flatMap(park =>
+    selectedSports.flatMap(sport => {
       const info = park[sport];
-      if (!info || (sportFilter === 'pickleball' && id('net').checked && info.nets !== 'provided')) return [];
+      if (!info || (sport === 'pickleball' && id('net').checked && info.nets !== 'provided')) return [];
       const result = [];
-      if (access !== 'walk' && info.reserve) {
+      if (reserve && info.reserve) {
         const live = (lookup[park.slug] ?? []).filter(court => court.datesBySport[sport]);
         for (const court of live) result.push({ title:court.name, dates:court.datesBySport[sport], mode:'reserve' });
         for (let n = live.length; n < info.reserve; n++) {
           result.push({ title:'Listed reservable court ' + (n + 1), dates:{}, mode:'reserve' });
         }
       }
-      if (access !== 'reserve') {
+      if (walk) {
         for (let n = 1; n <= info.walk; n++) result.push({ title:'Walk-up court ' + n, dates:{}, mode:'walk' });
       }
       return result.map(row => ({...row, park, sport, nets:info.nets}));
@@ -56,9 +70,11 @@ function drawHead(days) {
   id('weekend').textContent = dateLabel.formatRange(...days);
   id('previous').disabled = offset === 0;
   id('next').disabled = offset === 1;
-  const dates = days.map((date,index) =>
-    '<th scope="colgroup" colspan="48">' + (index ? 'Sunday' : 'Saturday') + ' · ' + dateLabel.format(date) + '</th>');
-  const timesOfDay = days.flatMap((_,index) => times.map(minute =>
+  const grid = days.map(gridDay);
+  const dates = grid.map(({date,cutoff,columns},index) =>
+    '<th scope="colgroup" colspan="' + columns.length + '">' + (index ? 'Sunday' : 'Saturday') +
+    ' · ' + dateLabel.format(date) + ' · Through ' + time(cutoff) + '</th>');
+  const timesOfDay = grid.flatMap(({columns},index) => columns.map(minute =>
     '<th scope="col"' + (minute === 420 ? ' id="day-' + index + '"' : '') +
     (index && !minute ? ' class="day-start"' : '') + '>' +
     time(minute).replace(':00', '').replace(' ', '') + '</th>'));
@@ -67,16 +83,18 @@ function drawHead(days) {
 }
 
 function drawRows(days) {
+  const grid = days.map(gridDay);
   id('body').innerHTML = rows().map(row => {
     const url = row.mode === 'reserve' ? booking(row.park) : directories[row.sport];
     const sport = row.sport === 'tennis' ? 'Tennis' : 'Pickleball';
     const nets = {provided:' · Nets provided',bring:' · Check / bring net',loan:' · Net lending hours'}[row.nets] ?? '';
     return '<tr><th class="row-name" scope="row"><a href="' + url + '" target="_blank" rel="noopener">' +
-      escape(row.park.name) + '</a><small>' + escape(sport + ' · ' + row.title + nets) + '</small></th>' +
-      days.flatMap((date,index) => times.map((minute,slot) => {
+      escape(row.park.name) + '</a>' + distanceLabel(row.park) + '<small>' + escape(sport + ' · ' + row.title + nets) + '</small></th>' +
+      grid.flatMap(({date,cutoff,columns},index) => columns.map((minute,slot) => {
+        const span = time(minute) + '–' + time(Math.min(minute + 30,cutoff));
         const state = row.mode === 'walk' ? 'walk' : (row.dates[iso(date)]?.[slot] ?? 'unknown');
         const label = {free:'Available to reserve',closed:'Unavailable',unknown:'Availability unknown',walk:'Walk-up, check hours and occupancy'}[state] ?? 'Availability unknown';
-        const detail = iso(date) + ' ' + time(minute) + ' · ' + label;
+        const detail = iso(date) + ' ' + span + ' · ' + label;
         const link = state === 'free'
           ? '<a href="' + url + '" target="_blank" rel="noopener" aria-label="' +
             escape('Open booking for ' + row.park.name + ', ' + row.title + ', ' + detail) + '">↗</a>'
@@ -181,10 +199,54 @@ async function render({reset = false} = {}) {
     }
   }
 }
-for (const key of ['sport','access','search','net']) id(key).addEventListener('input', () => {
-  id('net-label').hidden = id('sport').value !== 'pickleball';
+for (const key of ['tennis','pickleball','reserve','walk','search','net']) id(key).addEventListener('input', () => {
+  id('net-label').hidden = !id('pickleball').checked;
   drawRows(weekend());
 });
+let distanceRequest;
+id('distance-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const address = id('address').value.trim();
+  if (!address) return;
+  distanceRequest?.abort();
+  const controller = new AbortController();
+  distanceRequest = controller;
+  id('sort-distance').disabled = true;
+  id('address').readOnly = true;
+  id('clear-distance').hidden = false;
+  id('distance-status').textContent = 'Looking up address…';
+  try {
+    const response = await fetch('api/address', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({address}), signal:controller.signal
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error);
+    if (controller.signal.aborted) return;
+    origin = result.point;
+    drawRows(weekend());
+    id('distance-status').textContent = 'Sorted from ' + result.label + '.';
+  } catch (error) {
+    if (!controller.signal.aborted) {
+      id('distance-status').textContent = error.message || 'Address lookup is unavailable.';
+    }
+  } finally {
+    if (!controller.signal.aborted) {
+      id('sort-distance').disabled = false;
+      id('address').readOnly = false;
+    }
+  }
+});
+id('clear-distance').onclick = () => {
+  distanceRequest?.abort();
+  origin = undefined;
+  id('address').value = '';
+  id('address').readOnly = false;
+  id('sort-distance').disabled = false;
+  id('clear-distance').hidden = true;
+  id('distance-status').textContent = '';
+  drawRows(weekend());
+};
 id('previous').onclick = () => { offset--; render({reset:true}); };
 id('next').onclick = () => { offset++; render({reset:true}); };
 id('refresh').onclick = () => render();

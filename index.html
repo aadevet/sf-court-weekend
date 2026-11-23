@@ -6,6 +6,7 @@
 <title>SF Court Weekend</title>
 <link rel="stylesheet" href="style.css">
 <script src="courts.js" defer></script>
+<script src="geo.js" defer></script>
 <script src="app.js" defer></script>
 </head>
 <body>
@@ -19,10 +20,26 @@
     </div>
     <button id="refresh">Refresh availability</button>
   </div></div>
-  <div class="toolbar"><label>Sport <select id="sport"><option value="all">Both</option><option value="tennis">Tennis</option><option value="pickleball">Pickleball</option></select></label>
-  <label>Access <select id="access"><option value="all">All courts</option><option value="reserve">Reservable</option><option value="walk">Walk-up</option></select></label>
-  <label>Park <input id="search" type="search" placeholder="Search park name"></label>
-  <label id="net-label" hidden><input id="net" type="checkbox"> Nets provided</label></div>
+  <div class="toolbar">
+    <fieldset><legend>Sport</legend>
+      <label><input id="tennis" type="checkbox" checked> Tennis</label>
+      <label><input id="pickleball" type="checkbox" checked> Pickleball</label>
+      <label id="net-label"><input id="net" type="checkbox"> Nets provided for pickleball</label>
+    </fieldset>
+    <fieldset><legend>Access</legend>
+      <label><input id="reserve" type="checkbox" checked> Reservable</label>
+      <label><input id="walk" type="checkbox" checked> Walk-up</label>
+    </fieldset>
+    <label>Park <input id="search" type="search" placeholder="Search park name"></label>
+  </div>
+  <form id="distance-form" class="toolbar" aria-describedby="address-note">
+    <label for="address">Sort by distance from</label>
+    <input id="address" type="text" maxlength="250" size="38" placeholder="Street address, city, state or ZIP" required>
+    <button id="sort-distance">Find nearest courts</button>
+    <button id="clear-distance" type="button" hidden>Clear</button>
+  </form>
+  <p id="address-note" class="note">Street addresses are sent to the U.S. Census Geocoder. Distances are straight-line estimates.</p>
+  <p id="distance-status" class="note" role="status"></p>
 </section>
 <p id="status" role="status"></p>
 <div class="toolbar legend" aria-label="Availability legend"><span class="free">Available to reserve</span><span class="closed">Unavailable</span><span class="unknown">Unknown</span><span class="walk">Walk-up</span></div>

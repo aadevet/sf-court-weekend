@@ -16,7 +16,7 @@ const atMidnight = date => new Date(date + 'T00:00:00Z');
 const assets = new Map([
   ['/', ['index.html','text/html']], ['/index.html',['index.html','text/html']],
   ['/style.css',['style.css','text/css']], ['/app.js',['app.js','text/javascript']],
-  ['/courts.js',['courts.js','text/javascript']]
+  ['/courts.js',['courts.js','text/javascript']], ['/geo.js',['geo.js','text/javascript']]
 ]);
 const locationIds = new Map();
 const weekendCache = new Map();
@@ -167,12 +167,45 @@ function schedule(date) {
   return weekendCache.get(key).value;
 }
 
+async function addressLookup(request, send) {
+  const json = (status, data) => send(status,'application/json',JSON.stringify(data));
+  if (request.method !== 'POST') return json(405,{error:'Submit an address to look it up.'});
+  if (request.headers['content-type']?.split(';')[0] !== 'application/json') {
+    return json(415,{error:'The address request must use JSON.'});
+  }
+  let body = '';
+  for await (const chunk of request) {
+    body += chunk;
+    if (Buffer.byteLength(body) > 2048) return json(413,{error:'The address is too long.'});
+  }
+  let address;
+  try { address = JSON.parse(body)?.address?.trim(); } catch {}
+  if (!address || address.length > 250) return json(400,{error:'Enter a full U.S. street address.'});
+
+  const url = new URL('https://geocoding.geo.census.gov/geocoder/locations/onelineaddress');
+  url.search = new URLSearchParams({address,benchmark:'Public_AR_Current',format:'json'});
+  try {
+    const result = await read(url);
+    const matches = (result?.result?.addressMatches ?? []).filter(({coordinates}) =>
+      Number.isFinite(coordinates?.x) && Number.isFinite(coordinates?.y));
+    if (!matches.length) return json(404,{error:'Address not found. Include city and state or ZIP code.'});
+    const {coordinates,matchedAddress} = matches[0];
+    if (matches.some(match => match.coordinates.x !== coordinates.x || match.coordinates.y !== coordinates.y)) {
+      return json(409,{error:'More than one address matched. Include city, state and ZIP code.'});
+    }
+    return json(200,{point:[coordinates.y,coordinates.x],label:matchedAddress});
+  } catch {
+    return json(502,{error:'The address lookup service is unavailable. Try again shortly.'});
+  }
+}
+
 async function handle(request, response) {
   const url = new URL(request.url, 'http://localhost');
   const send = (code,type,body) => {
     response.writeHead(code, {'Content-Type':type + '; charset=utf-8','X-Content-Type-Options':'nosniff','Cache-Control':'no-store'});
     response.end(body);
   };
+  if (url.pathname === '/api/address') return addressLookup(request,send);
   if (request.method !== 'GET') return send(405,'text/plain','Method not allowed');
   if (url.pathname === '/api/weekend' || url.pathname === '/api/weekend/progress') {
     const date = dateForRequest(url.searchParams.get('saturday'));
