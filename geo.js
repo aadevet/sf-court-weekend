@@ -10,12 +10,12 @@ function distanceKm([lat1, lon1], [lat2, lon2]) {
   return 12742 * Math.asin(Math.sqrt(Math.min(a, 1)));
 }
 
-// Estimate apparent sunset at central San Francisco using the NOAA solar equations.
+// Estimate apparent sunrise and sunset at central San Francisco using the NOAA solar equations.
 // The 90.833° zenith includes refraction and the Sun's apparent radius.
-function sunsetCutoff(date) {
+function solarEventMinute(date, morning) {
   const latitude = radians(37.7749);
   const longitude = -122.4194;
-  let utcMinutes = 60;
+  let utcMinutes = morning ? 840 : 60;
   for (let i = 0; i < 3; i++) {
     const julian = (date.valueOf() + utcMinutes * 60000) / 86400000 + 2440587.5;
     const century = (julian - 2451545) / 36525;
@@ -35,11 +35,14 @@ function sunsetCutoff(date) {
       .5 * y * y * Math.sin(4 * meanLongitude) - 1.25 * eccentricity ** 2 * Math.sin(2 * anomaly);
     const hourAngle = Math.acos(Math.cos(radians(90.833)) / (Math.cos(latitude) * Math.cos(declination)) -
       Math.tan(latitude) * Math.tan(declination));
-    utcMinutes = 720 + 4 * (hourAngle / radians(1) - longitude) - 4 * equation / radians(1);
+    utcMinutes = 720 + 4 * ((morning ? -hourAngle : hourAngle) / radians(1) - longitude) - 4 * equation / radians(1);
   }
-  const sunset = new Date(+date + Math.round(utcMinutes) * 60000);
-  const [hour, minute] = solarClock.format(sunset).split(':').map(Number);
-  return hour * 60 + minute + 60;
+  const event = new Date(+date + Math.round(utcMinutes) * 60000);
+  const [hour, minute] = solarClock.format(event).split(':').map(Number);
+  return hour * 60 + minute;
 }
 
-if (typeof module !== 'undefined') module.exports = {distanceKm, sunsetCutoff};
+const sunriseStart = date => solarEventMinute(date, true) - 60;
+const sunsetCutoff = date => solarEventMinute(date, false) + 60;
+
+if (typeof module !== 'undefined') module.exports = {distanceKm, sunriseStart, sunsetCutoff};

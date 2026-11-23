@@ -19,8 +19,9 @@ const escape = value => String(value).replace(/[&<>"']/g, char =>
 const time = minute => clock.format(new Date(minute * 60000));
 
 function gridDay(date) {
+  const start = sunriseStart(date);
   const cutoff = sunsetCutoff(date);
-  return {date, cutoff, columns:times.filter(minute => minute < cutoff)};
+  return {date, start, cutoff, columns:times.filter(minute => minute + 30 > start && minute < cutoff)};
 }
 
 let origin;
@@ -71,13 +72,13 @@ function drawHead(days) {
   id('previous').disabled = offset === 0;
   id('next').disabled = offset === 1;
   const grid = days.map(gridDay);
-  const dates = grid.map(({date,cutoff,columns},index) =>
+  const dates = grid.map(({date,start,cutoff,columns},index) =>
     '<th scope="colgroup" colspan="' + columns.length + '">' + (index ? 'Sunday' : 'Saturday') +
-    ' · ' + dateLabel.format(date) + ' · Through ' + time(cutoff) + '</th>');
-  const timesOfDay = grid.flatMap(({columns},index) => columns.map(minute =>
-    '<th scope="col"' + (minute === 420 ? ' id="day-' + index + '"' : '') +
-    (index && !minute ? ' class="day-start"' : '') + '>' +
-    time(minute).replace(':00', '').replace(' ', '') + '</th>'));
+    ' · ' + dateLabel.format(date) + ' · ' + time(start) + '–' + time(cutoff) + '</th>');
+  const timesOfDay = grid.flatMap(({start,columns},index) => columns.map((minute,column) =>
+    '<th scope="col"' + (!column ? ' id="day-' + index + '"' : '') +
+    (index && !column ? ' class="day-start"' : '') + '>' +
+    time(Math.max(minute,start)).replace(':00', '').replace(' ', '') + '</th>'));
   id('head').innerHTML = '<tr><th class="row-name" rowspan="2" scope="col">Park / court</th>' +
     dates.join('') + '</tr><tr>' + timesOfDay.join('') + '</tr>';
 }
@@ -90,8 +91,9 @@ function drawRows(days) {
     const nets = {provided:' · Nets provided',bring:' · Check / bring net',loan:' · Net lending hours'}[row.nets] ?? '';
     return '<tr><th class="row-name" scope="row"><a href="' + url + '" target="_blank" rel="noopener">' +
       escape(row.park.name) + '</a>' + distanceLabel(row.park) + '<small>' + escape(sport + ' · ' + row.title + nets) + '</small></th>' +
-      grid.flatMap(({date,cutoff,columns},index) => columns.map((minute,slot) => {
-        const span = time(minute) + '–' + time(Math.min(minute + 30,cutoff));
+      grid.flatMap(({date,start,cutoff,columns},index) => columns.map((minute,column) => {
+        const slot = minute / 30;
+        const span = time(Math.max(minute,start)) + '–' + time(Math.min(minute + 30,cutoff));
         const state = row.mode === 'walk' ? 'walk' : (row.dates[iso(date)]?.[slot] ?? 'unknown');
         const label = {free:'Available to reserve',closed:'Unavailable',unknown:'Availability unknown',walk:'Walk-up, check hours and occupancy'}[state] ?? 'Availability unknown';
         const detail = iso(date) + ' ' + span + ' · ' + label;
@@ -99,7 +101,7 @@ function drawRows(days) {
           ? '<a href="' + url + '" target="_blank" rel="noopener" aria-label="' +
             escape('Open booking for ' + row.park.name + ', ' + row.title + ', ' + detail) + '">↗</a>'
           : '';
-        return '<td class="' + escape(state) + (index && !minute ? ' day-start' : '') + '" title="' +
+        return '<td class="' + escape(state) + (index && !column ? ' day-start' : '') + '" title="' +
           escape(detail) + '" aria-label="' + escape(detail) + '">' + link + '</td>';
       })).join('') + '</tr>';
   }).join('') || '<tr><th class="row-name">No matching courts</th></tr>';
