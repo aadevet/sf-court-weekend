@@ -130,7 +130,7 @@ async function readLocation(park, dates, now) {
   return [...result.values()].sort((a,b) => a.name.localeCompare(b.name,undefined,{numeric:true}));
 }
 
-async function fetchWeekend(saturday, now = new Date()) {
+async function fetchWeekend(saturday, now = new Date(), progress) {
   const locations = {};
   const dates = [iso(saturday),iso(new Date(+saturday + dayMs))];
   let failed = 0;
@@ -143,6 +143,8 @@ async function fetchWeekend(saturday, now = new Date()) {
         catch (error) {
           failed++;
           if (error.status === 403) forbidden++;
+        } finally {
+          if (progress) progress.completed++;
         }
       }));
     }
@@ -154,7 +156,14 @@ function schedule(date) {
   const key = iso(date);
   const now = Date.now();
   for (const [id, entry] of weekendCache) if (entry.expires <= now) weekendCache.delete(id);
-  if (!weekendCache.has(key)) weekendCache.set(key, {expires:now + 120000, value:fetchWeekend(date)});
+  if (!weekendCache.has(key)) {
+    const progress = {completed:0, total:enabled ? parkList.length : 0, startedAt:now};
+    const entry = {progress, expires:Infinity};
+    entry.value = fetchWeekend(date, new Date(now), progress).finally(() => {
+      entry.expires = Date.now() + 120000;
+    });
+    weekendCache.set(key, entry);
+  }
   return weekendCache.get(key).value;
 }
 
@@ -165,9 +174,14 @@ async function handle(request, response) {
     response.end(body);
   };
   if (request.method !== 'GET') return send(405,'text/plain','Method not allowed');
-  if (url.pathname === '/api/weekend') {
+  if (url.pathname === '/api/weekend' || url.pathname === '/api/weekend/progress') {
     const date = dateForRequest(url.searchParams.get('saturday'));
     if (!date) return send(400,'application/json','{"error":"Choose an upcoming Saturday"}');
+    if (url.pathname.endsWith('/progress')) {
+      const entry = weekendCache.get(iso(date));
+      const progress = entry?.expires === Infinity ? entry.progress : null;
+      return send(200,'application/json',JSON.stringify(progress));
+    }
     return send(200,'application/json',JSON.stringify(await schedule(date)));
   }
   const asset = assets.get(url.pathname);

@@ -93,16 +93,62 @@ function jump(day) {
     id('head').querySelector('.row-name').offsetWidth;
 }
 
+function watchRefresh(current, query, signal) {
+  const activity = id('refresh-activity');
+  const meter = id('refresh-meter');
+  const detail = id('refresh-detail');
+  let timer;
+  activity.hidden = false;
+  meter.removeAttribute('value');
+  detail.textContent = 'Starting availability check…';
+
+  async function poll() {
+    if (signal.aborted || current !== request) return;
+    try {
+      const response = await fetch('api/weekend/progress' + query, {signal});
+      if (!response.ok) return;
+      const progress = await response.json();
+      if (signal.aborted || current !== request) return;
+      if (progress?.total) {
+        const {completed,total,startedAt} = progress;
+        meter.max = total;
+        meter.value = completed;
+        const elapsed = Math.max(0, (Date.now() - startedAt) / 1000);
+        const remaining = elapsed * (total - completed) / completed;
+        const rounded = Math.max(5, Math.ceil(remaining / 5) * 5);
+        const estimate = completed === total ? 'Finishing…' : completed < 3
+          ? 'Estimating time…'
+          : (rounded >= 60 ? 'About ' + Math.ceil(rounded / 60) + ' min left' : 'About ' + rounded + ' sec left');
+        detail.textContent = completed + ' / ' + total + ' locations · ' + estimate;
+      }
+    } catch {
+      // Progress is optional. The availability request still finishes independently.
+    } finally {
+      if (!signal.aborted && current === request) timer = setTimeout(poll, 800);
+    }
+  }
+
+  timer = setTimeout(poll, 250);
+  return () => clearTimeout(timer);
+}
+
+let refreshController;
 async function render({reset = false} = {}) {
   const current = ++request;
+  refreshController?.abort();
+  const controller = new AbortController();
+  refreshController = controller;
   const days = weekend();
   if (reset) lookup = {};
   drawHead(days);
   drawRows(days);
   if (reset) jump(0);
   id('status').textContent = 'Checking availability…';
+  id('refresh').disabled = true;
+  const query = '?saturday=' + iso(days[0]);
+  const stopWatching = watchRefresh(current, query, controller.signal);
   try {
-    const response = await fetch('api/weekend?saturday=' + iso(days[0]));
+    const response = await fetch('api/weekend' + query, {signal:controller.signal});
     if (!response.ok) throw new Error('availability unavailable');
     const data = await response.json();
     if (current !== request) return;
@@ -125,6 +171,13 @@ async function render({reset = false} = {}) {
       lookup = {};
       drawRows(days);
       id('status').textContent = 'Live availability is unavailable. Use a park name for the official schedule.';
+    }
+  } finally {
+    controller.abort();
+    stopWatching();
+    if (current === request) {
+      id('refresh-activity').hidden = true;
+      id('refresh').disabled = false;
     }
   }
 }

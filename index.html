@@ -12,7 +12,13 @@
 <main>
 <header><small>SAN FRANCISCO PUBLIC COURTS</small><h1>SF Court Weekend</h1><p>Tennis and pickleball · Pacific time</p></header>
 <section aria-label="Weekend and court filters">
-  <div class="toolbar"><div class="dates"><button id="previous" aria-label="Previous weekend">←</button><h2 id="weekend"></h2><button id="next" aria-label="Next weekend">→</button></div><button id="refresh">Refresh availability</button></div>
+  <div class="toolbar"><div class="dates"><button id="previous" aria-label="Previous weekend">←</button><h2 id="weekend"></h2><button id="next" aria-label="Next weekend">→</button></div><div class="refresh-controls">
+    <div id="refresh-activity" hidden>
+      <progress id="refresh-meter" aria-label="Availability refresh progress"></progress>
+      <small id="refresh-detail"></small>
+    </div>
+    <button id="refresh">Refresh availability</button>
+  </div></div>
   <div class="toolbar"><label>Sport <select id="sport"><option value="all">Both</option><option value="tennis">Tennis</option><option value="pickleball">Pickleball</option></select></label>
   <label>Access <select id="access"><option value="all">All courts</option><option value="reserve">Reservable</option><option value="walk">Walk-up</option></select></label>
   <label>Park <input id="search" type="search" placeholder="Search park name"></label>
